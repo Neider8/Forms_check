@@ -1,0 +1,66 @@
+name: Build and Deploy to Azure VM
+
+on:
+  push:
+    branches:
+      - develop  # Ajusta si usas otra rama
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v2
+        with:
+          node-version: '22'  # Versión local para compilar y testear
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build the project
+        run: npm run build
+
+      - name: Copy files to VM
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.VM_IP }}
+          username: ${{ secrets.VM_USERNAME }}
+          key: ${{ secrets.VM_PRIVATE_KEY }}
+          port: ${{ secrets.VM_PORT }}
+          source: "."  # Copia todo el proyecto
+          target: "/home/${{ secrets.VM_USERNAME }}/form-app"  # Directorio en la VM
+
+      - name: Execute remote SSH commands
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.VM_IP }}
+          username: ${{ secrets.VM_USERNAME }}
+          key: ${{ secrets.VM_PRIVATE_KEY }}
+          port: ${{ secrets.VM_PORT }}
+          script: |
+            echo "==> Actualizando sistema"
+            sudo apt-get update -y
+            sudo apt-get install -y curl
+
+            echo "==> Instalando Node.js 20.x"
+            curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+            sudo apt-get install -y nodejs
+
+            echo "==> Instalando PM2 globalmente"
+            sudo npm install -g pm2
+
+            echo "==> Entrando al directorio del proyecto"
+            cd ~/form-app
+
+            echo "==> Instalando dependencias del proyecto"
+            npm install
+
+            echo "==> Iniciando o reiniciando la aplicación con PM2"
+            pm2 restart formulario || pm2 start server.js --name formulario
+
+            echo "==> Guardando configuración de PM2"
+            pm2 save
